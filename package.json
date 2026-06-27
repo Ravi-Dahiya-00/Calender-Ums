@@ -1,0 +1,16 @@
+{
+  "name": "calender-ums",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "apps/*",
+    "backend"
+  ],
+  "scripts": {
+    "dev:backend": "cd backend && npm run dev",
+    "dev:calendar": "cd apps/calendar-widget && npm run dev",
+    "dev:admin": "cd apps/admin-panel && npm run dev",
+    "install:all": "npm install && cd backend && npm install && cd ../apps/calendar-widget && npm install && cd ../admin-panel && npm install"
+  },
+  "description": "UMS Academic Calendar Integration — Monorepo"
+}

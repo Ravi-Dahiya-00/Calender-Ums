@@ -1,0 +1,31 @@
+# render.yaml — Infrastructure-as-Code for Render.com
+# Deploy by connecting your GitHub repo to Render and it will read this file automatically.
+# Docs: https://render.com/docs/infrastructure-as-code
+
+services:
+  - type: web
+    name: ums-calendar-api
+    runtime: node
+    region: singapore          # Closest to LPU (India) — change if needed
+    plan: free                 # Free tier is fine for a prototype
+    rootDir: backend
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true           # Auto-deploy on every push to main branch
+
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 10000            # Render assigns this port internally
+      - key: SUPABASE_URL
+        sync: false             # Fill this in Render dashboard (keeps secret)
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: ADMIN_API_KEY
+        sync: false
+      - key: ALLOWED_ORIGINS
+        sync: false             # Set to your Vercel app URLs in the dashboard
