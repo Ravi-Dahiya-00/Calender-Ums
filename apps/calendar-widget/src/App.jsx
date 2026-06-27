@@ -46,7 +46,7 @@ export default function App() {
 
   // Date-range filtered events (used in the date filter modal)
   const dateRangeEvents = useMemo(() => {
-    if (!dateFrom && !dateTo) return [];
+    if (!dateFrom && !dateTo) return events;
     return events.filter(e => {
       const d = dayjs(e.start);
       const from = dateFrom ? dayjs(dateFrom).startOf('day') : null;
