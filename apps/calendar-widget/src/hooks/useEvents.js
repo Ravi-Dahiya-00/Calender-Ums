@@ -15,7 +15,7 @@ import API_CONFIG from '../config/api-config';
  * to the universal event contract. Example:
  *   transformer = (rawEvent) => ({ ...rawEvent, start: rawEvent.examDate })
  */
-export function useEvents({ filters = {}, transformer = null } = {}) {
+export function useEvents({ transformer = null } = {}) {
   const [rawEvents, setRawEvents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -86,17 +86,19 @@ export function useEvents({ filters = {}, transformer = null } = {}) {
     fetchAllSources();
   }, [fetchAllSources]);
 
-  // Apply client-side filters synchronously based on rawEvents
-  const events = applyFilters(rawEvents, filters);
-
-  return { events, loading, error, refetch: fetchAllSources, lastFetched };
+  // No filtering here — return all events raw.
+  // Callers (App.jsx) build their own filtered views for sidebar vs. calendar.
+  return { events: rawEvents, loading, error, refetch: fetchAllSources, lastFetched };
 }
 
-// ─── Client-side filter application ─────────────────────────────────────────
-function applyFilters(events, filters) {
+// ─── Client-side filter application (exported for use in App.jsx) ───────────
+export function applyFilters(events, filters = {}) {
   let filtered = [...events];
 
-  if (filters.activeTypes && filters.activeTypes.length > 0) {
+  if (filters.activeTypes) {
+    if (filters.activeTypes.length === 0) {
+      return []; // All categories unchecked -> no events
+    }
     filtered = filtered.filter(e => filters.activeTypes.includes(e.type));
   }
 

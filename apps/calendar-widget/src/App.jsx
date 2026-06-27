@@ -6,7 +6,7 @@ import EventPopup from './components/EventPopup';
 import FilterBar from './components/FilterBar';
 import UpcomingList from './components/UpcomingList';
 import CustomDatePicker from './components/CustomDatePicker';
-import { useEvents } from './hooks/useEvents';
+import { useEvents, applyFilters } from './hooks/useEvents';
 import API_CONFIG from './config/api-config';
 import './index.css';
 
@@ -19,44 +19,77 @@ const MONTHS = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 
 
 export default function App() {
   const [selectedEvent, setSelectedEvent] = useState(null);
+  // ── Sidebar filter state (affects Upcoming Events list ONLY) ────────────────
   const [activeTypes, setActiveTypes] = useState(ALL_TYPES);
   const [search, setSearch] = useState('');
+  const [sidebarDateFrom, setSidebarDateFrom] = useState('');
+  const [sidebarDateTo, setSidebarDateTo] = useState('');
+  // ── Calendar filter state (affects Calendar view ONLY) ──────────────────────
+  const [calendarDateFrom, setCalendarDateFrom] = useState('');
+  const [calendarDateTo, setCalendarDateTo] = useState('');
+  // ── UI state ─────────────────────────────────────────────────────────────────
   const [isSidebarOpen, setIsSidebarOpen] = useState(false);
   const [isTodayModalOpen, setIsTodayModalOpen] = useState(false);
-  const [isDateFilterOpen, setIsDateFilterOpen] = useState(false);
-  const [dateFrom, setDateFrom] = useState('');
-  const [dateTo, setDateTo] = useState('');
+  const [isDateFilterOpen, setIsDateFilterOpen] = useState(false);      // calendar filter modal
+  const [isSidebarDateFilterOpen, setIsSidebarDateFilterOpen] = useState(false); // sidebar filter modal
   const [todayBannerDismissed, setTodayBannerDismissed] = useState(false);
 
-  const filters = useMemo(() => ({ activeTypes, search }), [activeTypes, search]);
-  const { events, loading, error, refetch, lastFetched } = useEvents({ filters });
+  // Fetch ALL events — no filtering inside the hook
+  const { events: allEvents, loading, error, refetch, lastFetched } = useEvents();
 
   const today = dayjs();
 
-  const eventCounts = useMemo(() => {
-    const counts = {};
-    events.forEach(e => { counts[e.type] = (counts[e.type] || 0) + 1; });
-    return counts;
-  }, [events]);
+  // ── SIDEBAR PIPELINE: category pills + search + sidebar date range ───────────
+  // Only feeds into <UpcomingList /> — never touches the calendar
+  const sidebarEvents = useMemo(() => {
+    let filtered = applyFilters(allEvents, { activeTypes, search });
+    if (sidebarDateFrom || sidebarDateTo) {
+      filtered = filtered.filter(e => {
+        const d = dayjs(e.start);
+        const from = sidebarDateFrom ? dayjs(sidebarDateFrom).startOf('day') : null;
+        const to = sidebarDateTo ? dayjs(sidebarDateTo).endOf('day') : null;
+        if (from && to) return (d.isAfter(from) || d.isSame(from)) && (d.isBefore(to) || d.isSame(to));
+        if (from) return d.isAfter(from) || d.isSame(from);
+        if (to) return d.isBefore(to) || d.isSame(to);
+        return true;
+      });
+    }
+    return filtered;
+  }, [allEvents, activeTypes, search, sidebarDateFrom, sidebarDateTo]);
 
-  const todayEvents = useMemo(() =>
-    events.filter(e => dayjs(e.start).isToday()),
-    [events]
-  );
-
-  // Date-range filtered events (used in the date filter modal)
-  const dateRangeEvents = useMemo(() => {
-    if (!dateFrom && !dateTo) return events;
-    return events.filter(e => {
+  // ── CALENDAR PIPELINE: date-range filter ───────────────────────────────────
+  // Only feeds into <CalendarView /> — never touches the sidebar
+  const calendarEvents = useMemo(() => {
+    if (!calendarDateFrom && !calendarDateTo) return allEvents;
+    return allEvents.filter(e => {
       const d = dayjs(e.start);
-      const from = dateFrom ? dayjs(dateFrom).startOf('day') : null;
-      const to = dateTo ? dayjs(dateTo).endOf('day') : null;
+      const from = calendarDateFrom ? dayjs(calendarDateFrom).startOf('day') : null;
+      const to = calendarDateTo ? dayjs(calendarDateTo).endOf('day') : null;
       if (from && to) return (d.isAfter(from) || d.isSame(from)) && (d.isBefore(to) || d.isSame(to));
       if (from) return d.isAfter(from) || d.isSame(from);
       if (to) return d.isBefore(to) || d.isSame(to);
       return true;
-    }).sort((a, b) => new Date(a.start) - new Date(b.start));
-  }, [events, dateFrom, dateTo]);
+    });
+  }, [allEvents, calendarDateFrom, calendarDateTo]);
+
+  // Event counts per category — always from ALL events so badges never disappear
+  const eventCounts = useMemo(() => {
+    const counts = {};
+    allEvents.forEach(e => { counts[e.type] = (counts[e.type] || 0) + 1; });
+    return counts;
+  }, [allEvents]);
+
+  // Today's events — unfiltered, used for the banner + today card
+  const todayEvents = useMemo(() =>
+    allEvents.filter(e => dayjs(e.start).isToday()),
+    [allEvents]
+  );
+
+  // Preview count shown inside the calendar filter modal
+  const calendarFilterPreviewCount = useMemo(() => {
+    if (!calendarDateFrom && !calendarDateTo) return allEvents.length;
+    return calendarEvents.length;
+  }, [calendarEvents, calendarDateFrom, calendarDateTo, allEvents.length]);
 
   const handleToggleType = useCallback((type) => {
     setActiveTypes(prev =>
@@ -69,13 +102,19 @@ export default function App() {
     setSearch('');
   }, []);
 
-  const handleClearDateFilter = useCallback(() => {
-    setDateFrom('');
-    setDateTo('');
+  const handleClearCalendarDateFilter = useCallback(() => {
+    setCalendarDateFrom('');
+    setCalendarDateTo('');
+  }, []);
+
+  const handleClearSidebarDateFilter = useCallback(() => {
+    setSidebarDateFrom('');
+    setSidebarDateTo('');
   }, []);
 
   const handleExportAllICS = useCallback(() => {
-    const eventsToExport = (dateFrom || dateTo) ? dateRangeEvents : events;
+    // Export calendar-filtered events (or all events if no calendar filter active)
+    const eventsToExport = (calendarDateFrom || calendarDateTo) ? calendarEvents : allEvents;
     if (eventsToExport.length === 0) return;
     
     const icsContent = [
@@ -109,7 +148,7 @@ export default function App() {
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
-  }, [events, dateRangeEvents, dateFrom, dateTo]);
+  }, [allEvents, calendarEvents, calendarDateFrom, calendarDateTo]);
 
   return (
     <div className="h-screen flex flex-col bg-[#F0F2F5] font-sans">
@@ -297,32 +336,32 @@ export default function App() {
               eventCounts={eventCounts}
             />
 
-            {/* Date Range Filter Button */}
+            {/* Sidebar Date Range Filter Button — opens the sidebar filter modal */}
             <button
-              onClick={() => setIsDateFilterOpen(true)}
+              onClick={() => setIsSidebarDateFilterOpen(true)}
               style={{
                 marginTop: '10px',
                 width: '100%', display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-                padding: '9px 12px', borderRadius: '10px', border: `1.5px solid ${(dateFrom || dateTo) ? '#8B0000' : '#E5E7EB'}`,
-                background: (dateFrom || dateTo) ? '#FFF5F5' : '#F9FAFB',
+                padding: '9px 12px', borderRadius: '10px', border: `1.5px solid ${(sidebarDateFrom || sidebarDateTo) ? '#8B0000' : '#E5E7EB'}`,
+                background: (sidebarDateFrom || sidebarDateTo) ? '#FFF5F5' : '#F9FAFB',
                 cursor: 'pointer', transition: 'all 0.15s',
               }}
               onMouseEnter={e => e.currentTarget.style.borderColor = '#8B0000'}
-              onMouseLeave={e => e.currentTarget.style.borderColor = (dateFrom || dateTo) ? '#8B0000' : '#E5E7EB'}
+              onMouseLeave={e => e.currentTarget.style.borderColor = (sidebarDateFrom || sidebarDateTo) ? '#8B0000' : '#E5E7EB'}
             >
               <div style={{ display: 'flex', alignItems: 'center', gap: '7px' }}>
-                <svg width="14" height="14" fill="none" stroke={(dateFrom || dateTo) ? '#8B0000' : '#6B7280'} viewBox="0 0 24 24">
+                <svg width="14" height="14" fill="none" stroke={(sidebarDateFrom || sidebarDateTo) ? '#8B0000' : '#6B7280'} viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"/>
                 </svg>
-                <span style={{ fontSize: '12px', fontWeight: '600', color: (dateFrom || dateTo) ? '#8B0000' : '#6B7280' }}>
-                  {(dateFrom || dateTo)
-                    ? `${dateFrom ? dayjs(dateFrom).format('D MMM') : '…'} → ${dateTo ? dayjs(dateTo).format('D MMM') : '…'}`
-                    : 'Date Range Filter'}
+                <span style={{ fontSize: '12px', fontWeight: '600', color: (sidebarDateFrom || sidebarDateTo) ? '#8B0000' : '#6B7280' }}>
+                  {(sidebarDateFrom || sidebarDateTo)
+                    ? `${sidebarDateFrom ? dayjs(sidebarDateFrom).format('D MMM') : '…'} → ${sidebarDateTo ? dayjs(sidebarDateTo).format('D MMM') : '…'}`
+                    : 'Upcoming Date Filter'}
                 </span>
               </div>
-              {(dateFrom || dateTo) ? (
+              {(sidebarDateFrom || sidebarDateTo) ? (
                 <span style={{ fontSize: '10px', fontWeight: '700', color: '#8B0000', background: '#FECACA', padding: '2px 7px', borderRadius: '10px' }}>
-                  {dateRangeEvents.length}
+                  {sidebarEvents.length}
                 </span>
               ) : (
                 <svg width="14" height="14" fill="none" stroke="#9CA3AF" viewBox="0 0 24 24">
@@ -332,7 +371,7 @@ export default function App() {
             </button>
 
             {/* Export Schedule Button */}
-            {!loading && events.length > 0 && (
+            {!loading && allEvents.length > 0 && (
               <button
                 onClick={handleExportAllICS}
                 style={{
@@ -354,14 +393,14 @@ export default function App() {
             )}
           </div>
 
-          {/* Upcoming section (Takes remaining space) */}
-          {!loading && events.length > 0 && (
+          {/* Upcoming section — filtered by sidebar category pills + search */}
+          {!loading && (
             <div style={{ padding: '12px', flex: 1 }}>
               <p style={{ fontSize: '11px', fontWeight: '600', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>
                 Upcoming Events
               </p>
               <UpcomingList
-                events={events}
+                events={sidebarEvents}
                 onEventClick={(e) => { setSelectedEvent(e); setIsSidebarOpen(false); }}
                 limit={15}
               />
@@ -431,8 +470,8 @@ export default function App() {
             </div>
           )}
 
-          {/* Empty state — no events match filters */}
-          {!loading && !error && dateRangeEvents.length === 0 && (
+          {/* Empty state — only shown when calendar date filter returns no results */}
+          {!loading && !error && calendarEvents.length === 0 && (
             <div style={{
               flex: 1, display: 'flex', flexDirection: 'column',
               alignItems: 'center', justifyContent: 'center',
@@ -450,16 +489,14 @@ export default function App() {
               </svg>
               <div style={{ textAlign: 'center' }}>
                 <p style={{ fontSize: '16px', fontWeight: '700', color: '#1F2937', marginBottom: '6px' }}>
-                  No events found
+                  No events in this date range
                 </p>
                 <p style={{ fontSize: '13px', color: '#9CA3AF', maxWidth: '260px', lineHeight: 1.6 }}>
-                  {search
-                    ? `No results for "${search}". Try a different keyword.`
-                    : 'No events match the selected filters. Try enabling more categories.'}
+                  No events fall between the selected dates. Try a different range or clear the date filter.
                 </p>
               </div>
               <button
-                onClick={handleClearFilters}
+                onClick={handleClearCalendarDateFilter}
                 style={{
                   padding: '9px 20px', borderRadius: '10px',
                   background: '#8B0000', color: '#fff',
@@ -471,20 +508,20 @@ export default function App() {
                 onMouseEnter={e => e.currentTarget.style.background = '#A31515'}
                 onMouseLeave={e => e.currentTarget.style.background = '#8B0000'}
               >
-                Clear All Filters
+                Clear Date Filter
               </button>
             </div>
           )}
 
-          {/* Calendar */}
-          {!loading && dateRangeEvents.length > 0 && (
+          {/* Calendar — always shows, filtered only by calendar date filter */}
+          {!loading && calendarEvents.length > 0 && (
             <div className="flex-1 overflow-hidden min-h-0">
               <CalendarView 
-                events={dateRangeEvents} 
+                events={calendarEvents} 
                 onEventClick={setSelectedEvent} 
                 onOpenDateFilter={() => setIsDateFilterOpen(true)} 
-                filterStartDate={dateFrom}
-                filterEndDate={dateTo}
+                filterStartDate={calendarDateFrom}
+                filterEndDate={calendarDateTo}
               />
             </div>
           )}
@@ -637,8 +674,8 @@ export default function App() {
             <div style={{ padding: '20px', borderBottom: '1px solid #F3F4F6' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <div>
-                  <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#111827' }}>Filter by Date Range</h2>
-                  <p style={{ fontSize: '13px', color: '#9CA3AF', marginTop: '2px' }}>Find events in a specific period</p>
+                  <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#111827' }}>Calendar Date Filter</h2>
+                  <p style={{ fontSize: '13px', color: '#9CA3AF', marginTop: '2px' }}>Show only events in a specific period on the calendar</p>
                 </div>
                 <button
                   onClick={() => setIsDateFilterOpen(false)}
@@ -667,11 +704,11 @@ export default function App() {
                     { label: 'Next 30 Days', emoji: '📆', from: today.format('YYYY-MM-DD'), to: today.add(30, 'day').format('YYYY-MM-DD') },
                     { label: 'Next 3 Months', emoji: '🚀', from: today.format('YYYY-MM-DD'), to: today.add(3, 'month').format('YYYY-MM-DD') },
                   ].map(range => {
-                    const isActive = dateFrom === range.from && dateTo === range.to;
+                    const isActive = calendarDateFrom === range.from && calendarDateTo === range.to;
                     return (
                       <button
                         key={range.label}
-                        onClick={() => { setDateFrom(range.from); setDateTo(range.to); }}
+                        onClick={() => { setCalendarDateFrom(range.from); setCalendarDateTo(range.to); }}
                         style={{
                           display: 'flex', alignItems: 'center', gap: '8px',
                           padding: '11px 14px', borderRadius: '12px', border: '2px solid',
@@ -700,41 +737,41 @@ export default function App() {
 
               {/* Custom Inline Calendar Selector */}
               <CustomDatePicker 
-                dateFrom={dateFrom}
-                dateTo={dateTo}
+                dateFrom={calendarDateFrom}
+                dateTo={calendarDateTo}
                 onChange={(from, to) => {
-                  setDateFrom(from);
-                  setDateTo(to);
+                  setCalendarDateFrom(from);
+                  setCalendarDateTo(to);
                 }}
               />
 
               {/* Results preview */}
-              {(dateFrom || dateTo) && (
+              {(calendarDateFrom || calendarDateTo) && (
                 <div style={{
-                  background: dateRangeEvents.length > 0 ? '#F0FDF4' : '#FFF5F5',
-                  border: `1px solid ${dateRangeEvents.length > 0 ? '#BBF7D0' : '#FECACA'}`,
+                  background: calendarEvents.length > 0 ? '#F0FDF4' : '#FFF5F5',
+                  border: `1px solid ${calendarEvents.length > 0 ? '#BBF7D0' : '#FECACA'}`,
                   borderRadius: '12px', padding: '12px 16px',
                   display: 'flex', alignItems: 'center', justifyContent: 'space-between',
                 }}>
                   <div>
-                    <p style={{ fontSize: '14px', fontWeight: '800', color: dateRangeEvents.length > 0 ? '#166534' : '#991B1B', marginBottom: '2px' }}>
-                      {dateRangeEvents.length} event{dateRangeEvents.length !== 1 ? 's' : ''} found
+                    <p style={{ fontSize: '14px', fontWeight: '800', color: calendarEvents.length > 0 ? '#166534' : '#991B1B', marginBottom: '2px' }}>
+                      {calendarEvents.length} event{calendarEvents.length !== 1 ? 's' : ''} found
                     </p>
                     <p style={{ fontSize: '11.5px', color: '#6B7280' }}>
-                      {dateFrom ? dayjs(dateFrom).format('D MMM YYYY') : '…'} → {dateTo ? dayjs(dateTo).format('D MMM YYYY') : '…'}
+                      {calendarDateFrom ? dayjs(calendarDateFrom).format('D MMM YYYY') : '…'} → {calendarDateTo ? dayjs(calendarDateTo).format('D MMM YYYY') : '…'}
                     </p>
                   </div>
-                  {dateRangeEvents.length > 0 && <span style={{ fontSize: '22px' }}>✅</span>}
+                  {calendarEvents.length > 0 && <span style={{ fontSize: '22px' }}>✅</span>}
                 </div>
               )}
             </div>
 
             {/* Results list */}
-            {dateRangeEvents.length > 0 && (
+            {calendarEvents.length > 0 && (
               <div style={{ padding: '0 20px 16px', borderTop: '1px solid #F3F4F6', marginTop: '4px', paddingTop: '16px' }}>
                 <p style={{ fontSize: '11px', fontWeight: '700', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>Matching Events</p>
                 <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                  {dateRangeEvents.map(event => {
+                  {calendarEvents.map(event => {
                     const sourceConfig = API_CONFIG.sources.find(s => s.id.toUpperCase() === event.type?.toUpperCase());
                     const color = sourceConfig?.color || event.color || '#8B0000';
                     return (
@@ -768,9 +805,9 @@ export default function App() {
 
             {/* Footer actions */}
             <div style={{ padding: '14px 20px', borderTop: '1px solid #F3F4F6', display: 'flex', gap: '10px', flexShrink: 0 }}>
-              {(dateFrom || dateTo) && (
+              {(calendarDateFrom || calendarDateTo) && (
                 <button
-                  onClick={handleClearDateFilter}
+                  onClick={handleClearCalendarDateFilter}
                   style={{ flex: 1, padding: '11px', borderRadius: '10px', border: '1.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
                 >
                   Clear
@@ -778,6 +815,169 @@ export default function App() {
               )}
               <button
                 onClick={() => setIsDateFilterOpen(false)}
+                style={{ flex: 2, padding: '11px', borderRadius: '10px', border: 'none', background: '#8B0000', color: '#fff', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}
+              >
+                Done
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* ── SIDEBAR DATE RANGE FILTER MODAL ─────────────────────────────────────── */}
+      {isSidebarDateFilterOpen && (
+        <div
+          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4 bg-black/60 backdrop-blur-sm"
+          onClick={() => setIsSidebarDateFilterOpen(false)}
+        >
+          <div
+            className="bg-white w-full sm:max-w-md rounded-t-3xl sm:rounded-2xl shadow-2xl flex flex-col overflow-hidden max-h-[85vh] sm:max-h-[90vh]"
+            onClick={e => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div style={{ padding: '20px', borderBottom: '1px solid #F3F4F6' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <div>
+                  <h2 style={{ fontSize: '18px', fontWeight: '800', color: '#111827' }}>Upcoming Events Filter</h2>
+                  <p style={{ fontSize: '13px', color: '#9CA3AF', marginTop: '2px' }}>Show only events in a specific period in the sidebar</p>
+                </div>
+                <button
+                  onClick={() => setIsSidebarDateFilterOpen(false)}
+                  style={{ background: '#F3F4F6', border: 'none', borderRadius: '10px', padding: '8px', cursor: 'pointer', color: '#6B7280', display: 'flex', alignItems: 'center', justifyContent: 'center' }}
+                >
+                  <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12"/></svg>
+                </button>
+              </div>
+            </div>
+
+            {/* ── SMART DATE PICKER ─────────────────────────────────── */}
+            <div style={{ overflowY: 'auto', flex: 1, minHeight: 0 }}>
+              <div style={{ padding: '16px 20px', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+
+              {/* Quick Range Pills — FIRST for mobile-first speed */}
+              <div>
+                <p style={{ fontSize: '11px', fontWeight: '700', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>
+                  ⚡ Quick Select
+                </p>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '7px' }}>
+                  {[
+                    { label: 'Today', emoji: '📌', from: today.format('YYYY-MM-DD'), to: today.format('YYYY-MM-DD') },
+                    { label: 'This Week', emoji: '📅', from: today.startOf('week').format('YYYY-MM-DD'), to: today.endOf('week').format('YYYY-MM-DD') },
+                    { label: 'This Month', emoji: '📆', from: today.startOf('month').format('YYYY-MM-DD'), to: today.endOf('month').format('YYYY-MM-DD') },
+                    { label: 'Next 7 Days', emoji: '⏩', from: today.format('YYYY-MM-DD'), to: today.add(7, 'day').format('YYYY-MM-DD') },
+                    { label: 'Next 30 Days', emoji: '📆', from: today.format('YYYY-MM-DD'), to: today.add(30, 'day').format('YYYY-MM-DD') },
+                    { label: 'Next 3 Months', emoji: '🚀', from: today.format('YYYY-MM-DD'), to: today.add(3, 'month').format('YYYY-MM-DD') },
+                  ].map(range => {
+                    const isActive = sidebarDateFrom === range.from && sidebarDateTo === range.to;
+                    return (
+                      <button
+                        key={range.label}
+                        onClick={() => { setSidebarDateFrom(range.from); setSidebarDateTo(range.to); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '8px',
+                          padding: '11px 14px', borderRadius: '12px', border: '2px solid',
+                          borderColor: isActive ? '#8B0000' : '#F3F4F6',
+                          background: isActive ? '#8B0000' : '#F9FAFB',
+                          color: isActive ? '#fff' : '#374151',
+                          fontSize: '13px', fontWeight: '600', cursor: 'pointer',
+                          transition: 'all 0.15s', textAlign: 'left',
+                          boxShadow: isActive ? '0 4px 12px rgba(139,0,0,0.25)' : 'none',
+                        }}
+                      >
+                        <span style={{ fontSize: '16px' }}>{range.emoji}</span>
+                        {range.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Divider */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <div style={{ flex: 1, height: '1px', background: '#F3F4F6' }} />
+                <span style={{ fontSize: '11px', fontWeight: '600', color: '#9CA3AF', letterSpacing: '0.06em' }}>OR CUSTOM RANGE</span>
+                <div style={{ flex: 1, height: '1px', background: '#F3F4F6' }} />
+              </div>
+
+              {/* Custom Inline Calendar Selector */}
+              <CustomDatePicker 
+                dateFrom={sidebarDateFrom}
+                dateTo={sidebarDateTo}
+                onChange={(from, to) => {
+                  setSidebarDateFrom(from);
+                  setSidebarDateTo(to);
+                }}
+              />
+
+              {/* Results preview */}
+              {(sidebarDateFrom || sidebarDateTo) && (
+                <div style={{
+                  background: sidebarEvents.length > 0 ? '#F0FDF4' : '#FFF5F5',
+                  border: `1px solid ${sidebarEvents.length > 0 ? '#BBF7D0' : '#FECACA'}`,
+                  borderRadius: '12px', padding: '12px 16px',
+                  display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+                }}>
+                  <div>
+                    <p style={{ fontSize: '14px', fontWeight: '800', color: sidebarEvents.length > 0 ? '#166534' : '#991B1B', marginBottom: '2px' }}>
+                      {sidebarEvents.length} event{sidebarEvents.length !== 1 ? 's' : ''} found
+                    </p>
+                    <p style={{ fontSize: '11.5px', color: '#6B7280' }}>
+                      {sidebarDateFrom ? dayjs(sidebarDateFrom).format('D MMM YYYY') : '…'} → {sidebarDateTo ? dayjs(sidebarDateTo).format('D MMM YYYY') : '…'}
+                    </p>
+                  </div>
+                  {sidebarEvents.length > 0 && <span style={{ fontSize: '22px' }}>✅</span>}
+                </div>
+              )}
+            </div>
+
+            {/* Results list */}
+            {sidebarEvents.length > 0 && (
+              <div style={{ padding: '0 20px 16px', borderTop: '1px solid #F3F4F6', marginTop: '4px', paddingTop: '16px' }}>
+                <p style={{ fontSize: '11px', fontWeight: '700', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.06em', marginBottom: '10px' }}>Matching Events</p>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                  {sidebarEvents.map(event => {
+                    const sourceConfig = API_CONFIG.sources.find(s => s.id.toUpperCase() === event.type?.toUpperCase());
+                    const color = sourceConfig?.color || event.color || '#8B0000';
+                    return (
+                      <button
+                        key={event.id}
+                        onClick={() => { setSelectedEvent(event); setIsSidebarDateFilterOpen(false); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '10px',
+                          padding: '10px 12px', borderRadius: '10px',
+                          background: `${color}08`, border: `1px solid ${color}20`,
+                          cursor: 'pointer', width: '100%', textAlign: 'left', transition: 'all 0.15s',
+                        }}
+                        onMouseEnter={e => e.currentTarget.style.background = `${color}15`}
+                        onMouseLeave={e => e.currentTarget.style.background = `${color}08`}
+                      >
+                        <div style={{ width: '32px', height: '32px', borderRadius: '8px', background: color, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '14px', flexShrink: 0 }}>
+                          {sourceConfig?.icon || '📅'}
+                        </div>
+                        <div style={{ flex: 1, minWidth: 0 }}>
+                          <p style={{ fontSize: '13px', fontWeight: '600', color: '#111827', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{event.title}</p>
+                          <p style={{ fontSize: '11px', color: '#6B7280', marginTop: '2px' }}>{dayjs(event.start).format('ddd, D MMM YYYY')} · {dayjs(event.start).format('h:mm A')}</p>
+                        </div>
+                        <svg width="16" height="16" fill="none" stroke="#D1D5DB" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7"/></svg>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+            </div>
+
+            {/* Footer actions */}
+            <div style={{ padding: '14px 20px', borderTop: '1px solid #F3F4F6', display: 'flex', gap: '10px', flexShrink: 0 }}>
+              {(sidebarDateFrom || sidebarDateTo) && (
+                <button
+                  onClick={handleClearSidebarDateFilter}
+                  style={{ flex: 1, padding: '11px', borderRadius: '10px', border: '1.5px solid #E5E7EB', background: '#fff', color: '#374151', fontSize: '13px', fontWeight: '600', cursor: 'pointer' }}
+                >
+                  Clear
+                </button>
+              )}
+              <button
+                onClick={() => setIsSidebarDateFilterOpen(false)}
                 style={{ flex: 2, padding: '11px', borderRadius: '10px', border: 'none', background: '#8B0000', color: '#fff', fontSize: '13px', fontWeight: '700', cursor: 'pointer' }}
               >
                 Done
