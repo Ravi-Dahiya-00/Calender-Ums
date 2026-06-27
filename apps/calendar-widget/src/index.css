@@ -301,23 +301,32 @@ body {
   
   /* Make time view (week) horizontally scrollable to prevent squished events */
   .rbc-time-view {
-    overflow-x: auto;
+    overflow-x: auto !important;
+    width: 100% !important;
+    max-width: 100% !important;
     -webkit-overflow-scrolling: touch;
   }
   
-  /* Force a minimum width so columns don't break */
-  .rbc-time-header,
-  .rbc-time-content {
-    min-width: 600px; 
+  /* Force a minimum width for the Week view so columns don't break */
+  .is-week-view .rbc-time-header,
+  .is-week-view .rbc-time-content {
+    min-width: 800px !important; 
   }
   
-  /* Hide the scrollbar for cleaner look on mobile */
+  /* Beautiful native scrollbar for the horizontal scroll */
   .rbc-time-view::-webkit-scrollbar {
-    display: none;
+    height: 6px;
   }
-  .rbc-time-view {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
+  .rbc-time-view::-webkit-scrollbar-track {
+    background: #f1f1f1; 
+    border-radius: 4px;
+  }
+  .rbc-time-view::-webkit-scrollbar-thumb {
+    background: #c1c1c1; 
+    border-radius: 4px;
+  }
+  .rbc-time-view::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8; 
   }
 }
 

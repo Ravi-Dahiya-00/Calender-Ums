@@ -185,6 +185,8 @@ export default function App() {
             <span className="font-bold text-sm">Filters & Options</span>
             <button onClick={() => setIsSidebarOpen(false)} className="p-1 hover:bg-white/20 rounded text-lg">✕</button>
           </div>
+          
+          <div className="flex-1 overflow-y-auto flex flex-col">
 
           {/* ── TODAY AT A GLANCE CARD ─────────────────────────────────────── */}
           <div 
@@ -354,7 +356,7 @@ export default function App() {
 
           {/* Upcoming section (Takes remaining space) */}
           {!loading && events.length > 0 && (
-            <div style={{ padding: '12px', flex: 1, overflowY: 'auto' }}>
+            <div style={{ padding: '12px', flex: 1 }}>
               <p style={{ fontSize: '11px', fontWeight: '600', color: '#9CA3AF', textTransform: 'uppercase', letterSpacing: '0.07em', marginBottom: '8px' }}>
                 Upcoming Events
               </p>
@@ -365,6 +367,7 @@ export default function App() {
               />
             </div>
           )}
+          </div>
         </aside>
 
         {/* ── CALENDAR MAIN AREA ──────────────────────────────────────────── */}

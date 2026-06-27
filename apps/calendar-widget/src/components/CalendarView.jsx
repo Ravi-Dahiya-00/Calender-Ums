@@ -241,7 +241,7 @@ export default function CalendarView({ events, onEventClick, onOpenDateFilter, f
   }), [EventComponent, onOpenDateFilter]);
 
   return (
-    <div className="rbc-wrap" style={{ height: '100%' }}>
+    <div className={`rbc-wrap is-${view}-view`} style={{ height: '100%', width: '100%', maxWidth: '100%', overflowX: 'hidden' }}>
       <Calendar
         localizer={localizer}
         events={events}
